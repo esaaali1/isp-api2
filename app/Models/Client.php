@@ -1,0 +1,84 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+
+/**
+ * Maps the existing `clients` table (isp_panel). Each client belongs to
+ * exactly one agent and shares its `username` with the radcheck/radreply/
+ * radusergroup/radacct tables (no DB-level FK there, just matching values).
+ */
+class Client extends Model
+{
+    use HasFactory;
+
+    protected $table = 'clients';
+
+    protected $fillable = [
+        'agent_id',
+        'fullname',
+        'username',
+        'password',
+        'package',
+        'start_date',
+        'end_date',
+    ];
+
+    protected $hidden = [
+        'password',
+    ];
+
+    protected function casts(): array
+    {
+        return [
+            'start_date' => 'date',
+            'end_date' => 'date',
+        ];
+    }
+
+    public function agent(): BelongsTo
+    {
+        return $this->belongsTo(Agent::class);
+    }
+
+    public function logs(): HasMany
+    {
+        return $this->hasMany(ClientLog::class);
+    }
+
+    /** RADIUS check attributes for this client's username (e.g. Cleartext-Password). */
+    public function radChecks(): HasMany
+    {
+        return $this->hasMany(RadCheck::class, 'username', 'username');
+    }
+
+    /** RADIUS reply attributes for this client's username (e.g. Framed-IP-Address). */
+    public function radReplies(): HasMany
+    {
+        return $this->hasMany(RadReply::class, 'username', 'username');
+    }
+
+    /** RADIUS group memberships for this client's username. */
+    public function radUserGroups(): HasMany
+    {
+        return $this->hasMany(RadUserGroup::class, 'username', 'username');
+    }
+
+    /** RADIUS accounting sessions for this client's username. */
+    public function radAcctSessions(): HasMany
+    {
+        return $this->hasMany(RadAcct::class, 'username', 'username');
+    }
+
+    public function isActive(): bool
+    {
+        $today = now()->toDateString();
+
+        return $this->start_date?->toDateString() <= $today
+            && $this->end_date?->toDateString() >= $today;
+    }
+}

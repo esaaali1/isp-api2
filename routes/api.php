@@ -1,0 +1,18 @@
+<?php
+
+use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\ClientController;
+use App\Http\Controllers\Api\DashboardController;
+use Illuminate\Support\Facades\Route;
+
+Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:6,1');
+
+Route::middleware('auth:sanctum')->group(function () {
+    Route::post('/logout', [AuthController::class, 'logout']);
+    Route::get('/me', [AuthController::class, 'me']);
+
+    Route::get('/dashboard', [DashboardController::class, 'index']);
+
+    Route::get('/clients/{client}/status', [ClientController::class, 'status']);
+    Route::apiResource('clients', ClientController::class);
+});
