@@ -100,7 +100,7 @@ class ClientController extends Controller
             if ((string) $client->{$field} !== (string) $value) {
                 $changes[] = [
                     'client_id' => $client->id,
-                    'action' => "updated:{$field}",
+                    'action' => "{$field}_change",
                     'old_value' => (string) $client->{$field},
                     'new_value' => (string) $value,
                     'created_at' => now(),
@@ -125,6 +125,54 @@ class ClientController extends Controller
         $client->delete();
 
         return response()->json(status: 204);
+    }
+
+    /** يمدّد تاريخ الانتهاء 30 يوماً من تاريخ الانتهاء الحالي (أو من اليوم إن كان منتهياً بالفعل). */
+    public function renew(Client $client): JsonResponse
+    {
+        $this->authorize('update', $client);
+
+        $today = now()->startOfDay();
+        $base = $client->end_date && $client->end_date->greaterThan($today) ? $client->end_date : $today;
+        $newEndDate = $base->copy()->addDays(30)->toDateString();
+
+        $this->applyDateChange($client, 'renew', $newEndDate);
+
+        return response()->json(new ClientResource($client->fresh()));
+    }
+
+    /** يضبط تاريخ الانتهاء ليوم واحد فقط من الآن (تفعيل تجريبي). */
+    public function trial(Client $client): JsonResponse
+    {
+        $this->authorize('update', $client);
+
+        $newEndDate = now()->addDay()->toDateString();
+
+        $this->applyDateChange($client, 'trial_activation', $newEndDate);
+
+        return response()->json(new ClientResource($client->fresh()));
+    }
+
+    private function applyDateChange(Client $client, string $action, string $newEndDate): void
+    {
+        ClientLog::create([
+            'client_id' => $client->id,
+            'action' => $action,
+            'old_value' => $client->end_date?->toDateString(),
+            'new_value' => $newEndDate,
+        ]);
+
+        $client->update(['end_date' => $newEndDate]);
+    }
+
+    /** سجل تغييرات هذا المشترك (الأحدث أولاً). */
+    public function logs(Client $client): JsonResponse
+    {
+        $this->authorize('view', $client);
+
+        $logs = $client->logs()->latest('created_at')->get(['id', 'client_id', 'action', 'old_value', 'new_value', 'created_at']);
+
+        return response()->json($logs);
     }
 
     public function status(Client $client, MikrotikService $mikrotik): JsonResponse

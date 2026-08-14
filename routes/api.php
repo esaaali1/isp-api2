@@ -15,5 +15,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/clients/online', [ClientController::class, 'online']);
     Route::get('/clients/{client}/status', [ClientController::class, 'status']);
+    Route::get('/clients/{client}/logs', [ClientController::class, 'logs']);
+    Route::post('/clients/{client}/renew', [ClientController::class, 'renew']);
+    Route::post('/clients/{client}/trial', [ClientController::class, 'trial']);
     Route::apiResource('clients', ClientController::class);
 });

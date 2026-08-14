@@ -11,6 +11,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * Maps the existing `clients` table (isp_panel). Each client belongs to
  * exactly one agent and shares its `username` with the radcheck/radreply/
  * radusergroup/radacct tables (no DB-level FK there, just matching values).
+ *
+ * Unlike Agent, `password` here is deliberately NOT hidden: it's the
+ * client's PPPoE/hotspot dial-up credential, which agents legitimately
+ * need to read back and hand to the client (not a panel login secret).
+ * ClientResource exposes it on purpose.
  */
 class Client extends Model
 {
@@ -26,10 +31,6 @@ class Client extends Model
         'package',
         'start_date',
         'end_date',
-    ];
-
-    protected $hidden = [
-        'password',
     ];
 
     protected function casts(): array

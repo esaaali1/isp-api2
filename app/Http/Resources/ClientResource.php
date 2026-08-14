@@ -14,6 +14,7 @@ class ClientResource extends JsonResource
             'id' => $this->id,
             'fullname' => $this->fullname,
             'username' => $this->username,
+            'password' => $this->password,
             'package' => $this->package,
             'start_date' => $this->start_date?->toDateString(),
             'end_date' => $this->end_date?->toDateString(),
