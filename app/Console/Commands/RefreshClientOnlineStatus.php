@@ -2,7 +2,6 @@
 
 namespace App\Console\Commands;
 
-use App\Exceptions\MikrotikConnectionException;
 use App\Models\Agent;
 use App\Services\MikrotikService;
 use Illuminate\Console\Command;
@@ -26,18 +25,14 @@ class RefreshClientOnlineStatus extends Command
     {
         Agent::with('clients')->chunkById(50, function ($agents) use ($mikrotik) {
             foreach ($agents as $agent) {
-                $onlineIds = [];
+                // اتصال واحد بالراوتر يُستخدم لكل عملاء هذا الوكيل دفعة
+                // واحدة، بدل اتصال منفصل لكل عميل (كان هذا سبب البطء).
+                $onlineUsernames = $mikrotik->onlineUsernamesForAgent($agent);
 
-                foreach ($agent->clients as $client) {
-                    try {
-                        $status = $mikrotik->connectionStatus($client);
-                        if ($status['connected'] ?? false) {
-                            $onlineIds[] = $client->id;
-                        }
-                    } catch (MikrotikConnectionException) {
-                        // تعذّر الوصول لراوتر هذا الوكيل — نكمل بقية عملائه دون إيقاف الأمر.
-                    }
-                }
+                $onlineIds = $agent->clients
+                    ->whereIn('username', $onlineUsernames)
+                    ->pluck('id')
+                    ->all();
 
                 Cache::put("agent_online_clients:{$agent->id}", $onlineIds, now()->addMinutes(2));
             }

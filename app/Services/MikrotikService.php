@@ -96,6 +96,49 @@ class MikrotikService
         }
     }
 
+    /**
+     * أسماء مستخدمي كل الجلسات المتصلة الآن (PPPoE + Hotspot) على راوتر
+     * هذا الوكيل، باتصال واحد يُعاد استخدامه لكل عملائه — بعكس
+     * connectionStatus() التي تفتح اتصالاً جديداً لكل عميل على حدة (مناسب
+     * لفحص عميل واحد، لكنه بطيء جداً عند تكراره لعشرات العملاء).
+     *
+     * @return list<string>
+     */
+    public function onlineUsernamesForAgent(Agent $agent): array
+    {
+        if (! $agent->mikrotik_host || ! $agent->mikrotik_user) {
+            return [];
+        }
+
+        try {
+            $api = $this->connect($agent);
+        } catch (MikrotikConnectionException) {
+            return [];
+        }
+
+        try {
+            $usernames = [];
+
+            foreach ($api->query('/ppp/active/print') as $row) {
+                if (isset($row['name'])) {
+                    $usernames[] = $row['name'];
+                }
+            }
+
+            foreach ($api->query('/ip/hotspot/active/print') as $row) {
+                if (isset($row['user'])) {
+                    $usernames[] = $row['user'];
+                }
+            }
+
+            return $usernames;
+        } catch (MikrotikConnectionException) {
+            return [];
+        } finally {
+            $api->close();
+        }
+    }
+
     private function connect(Agent $agent): RouterOsApiClient
     {
         if (! $agent->mikrotik_pass) {
