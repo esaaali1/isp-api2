@@ -13,6 +13,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/dashboard', [DashboardController::class, 'index']);
 
+    Route::get('/clients/online', [ClientController::class, 'online']);
     Route::get('/clients/{client}/status', [ClientController::class, 'status']);
     Route::apiResource('clients', ClientController::class);
 });

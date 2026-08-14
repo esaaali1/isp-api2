@@ -13,6 +13,7 @@ use App\Models\ClientLog;
 use App\Services\MikrotikService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class ClientController extends Controller
 {
@@ -42,6 +43,25 @@ class ClientController extends Controller
         $clients = $query->orderBy('fullname')->paginate($request->integer('per_page', 25));
 
         return response()->json(ClientResource::collection($clients)->response()->getData(true));
+    }
+
+    /**
+     * قائمة العملاء المتصلين حالياً، من الـ cache الذي يُحدَّث كل دقيقة
+     * عبر أمر clients:refresh-online-status — قراءة سريعة بدون استعلام
+     * MikroTik حي (على عكس /clients/{client}/status لعميل واحد).
+     */
+    public function online(Request $request): JsonResponse
+    {
+        $this->authorize('viewAny', Client::class);
+
+        /** @var Agent $agent */
+        $agent = $request->user();
+
+        $onlineIds = Cache::get("agent_online_clients:{$agent->id}", []);
+
+        $clients = $agent->clients()->whereIn('id', $onlineIds)->orderBy('fullname')->get();
+
+        return response()->json(ClientResource::collection($clients));
     }
 
     public function store(StoreClientRequest $request): JsonResponse
