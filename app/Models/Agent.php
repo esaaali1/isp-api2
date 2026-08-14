@@ -40,7 +40,11 @@ class Agent extends Model
     protected function casts(): array
     {
         return [
-            'password' => 'hashed',
+            // TODO: switch back to a 'hashed' cast once migration to
+            // isp-api is complete and passwords are re-hashed (see the
+            // matching TODO in AuthController@login). While the `agents`
+            // table is still shared with legacy isp-panel, values here are
+            // plain text, so auto-hashing on write would corrupt them.
             'mikrotik_port' => 'integer',
             'start_date' => 'date',
             'end_date' => 'date',

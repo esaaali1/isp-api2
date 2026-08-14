@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Models\Agent;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 
@@ -28,7 +27,12 @@ class AuthController extends Controller
 
         $agent = Agent::where('username', $request->string('username'))->first();
 
-        if (! $agent || ! Hash::check($request->string('password'), $agent->password)) {
+        // TODO: switch back to Hash::check() once migration to isp-api is
+        // complete and passwords are re-hashed. The `agents` table is still
+        // shared with the legacy isp-panel, which stores passwords in plain
+        // text, so a bcrypt comparison would reject every valid login until
+        // that system is retired and every row has been re-hashed.
+        if (! $agent || ! hash_equals($agent->password, $request->string('password')->value())) {
             throw ValidationException::withMessages([
                 'username' => ['اسم المستخدم أو كلمة المرور غير صحيحة.'],
             ]);
