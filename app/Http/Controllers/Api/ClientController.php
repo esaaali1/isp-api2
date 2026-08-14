@@ -16,13 +16,10 @@ use Illuminate\Http\Request;
 
 class ClientController extends Controller
 {
-    public function __construct()
-    {
-        $this->authorizeResource(Client::class, 'client');
-    }
-
     public function index(Request $request): JsonResponse
     {
+        $this->authorize('viewAny', Client::class);
+
         /** @var Agent $agent */
         $agent = $request->user();
 
@@ -49,6 +46,8 @@ class ClientController extends Controller
 
     public function store(StoreClientRequest $request): JsonResponse
     {
+        $this->authorize('create', Client::class);
+
         /** @var Agent $agent */
         $agent = $request->user();
 
@@ -66,11 +65,15 @@ class ClientController extends Controller
 
     public function show(Client $client): JsonResponse
     {
+        $this->authorize('view', $client);
+
         return response()->json(new ClientResource($client));
     }
 
     public function update(UpdateClientRequest $request, Client $client): JsonResponse
     {
+        $this->authorize('update', $client);
+
         $changes = [];
 
         foreach ($request->validated() as $field => $value) {
@@ -97,6 +100,8 @@ class ClientController extends Controller
 
     public function destroy(Client $client): JsonResponse
     {
+        $this->authorize('delete', $client);
+
         $client->delete();
 
         return response()->json(status: 204);
