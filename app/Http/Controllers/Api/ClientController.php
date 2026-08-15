@@ -127,14 +127,12 @@ class ClientController extends Controller
         return response()->json(status: 204);
     }
 
-    /** يمدّد تاريخ الانتهاء 30 يوماً من تاريخ الانتهاء الحالي (أو من اليوم إن كان منتهياً بالفعل). */
+    /** يفعّل الاشتراك 30 يوماً من تاريخ الضغط (اليوم)، بغض النظر عن تاريخ الانتهاء الحالي. */
     public function renew(Client $client): JsonResponse
     {
         $this->authorize('update', $client);
 
-        $today = now()->startOfDay();
-        $base = $client->end_date && $client->end_date->greaterThan($today) ? $client->end_date : $today;
-        $newEndDate = $base->copy()->addDays(30)->toDateString();
+        $newEndDate = now()->addDays(30)->toDateString();
 
         $this->applyDateChange($client, 'renew', $newEndDate);
 
