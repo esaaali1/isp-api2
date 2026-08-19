@@ -11,6 +11,7 @@ use App\Models\Agent;
 use App\Models\Client;
 use App\Models\ClientLog;
 use App\Services\MikrotikService;
+use App\Services\RadiusProvisioningService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -64,7 +65,7 @@ class ClientController extends Controller
         return response()->json(ClientResource::collection($clients));
     }
 
-    public function store(StoreClientRequest $request): JsonResponse
+    public function store(StoreClientRequest $request, RadiusProvisioningService $radius): JsonResponse
     {
         $this->authorize('create', Client::class);
 
@@ -76,6 +77,7 @@ class ClientController extends Controller
         $data['end_date'] ??= now()->addDays(30)->toDateString();
 
         $client = $agent->clients()->create($data);
+        $radius->sync($client);
 
         ClientLog::create([
             'client_id' => $client->id,
@@ -94,11 +96,12 @@ class ClientController extends Controller
         return response()->json(new ClientResource($client));
     }
 
-    public function update(UpdateClientRequest $request, Client $client): JsonResponse
+    public function update(UpdateClientRequest $request, Client $client, RadiusProvisioningService $radius): JsonResponse
     {
         $this->authorize('update', $client);
 
         $changes = [];
+        $oldUsername = $client->username;
 
         foreach ($request->validated() as $field => $value) {
             if ((string) $client->{$field} !== (string) $value) {
@@ -114,48 +117,53 @@ class ClientController extends Controller
         }
 
         $client->update($request->validated());
+        $client = $client->fresh();
+
+        $radius->renameUsername($oldUsername, $client->username);
+        $radius->sync($client);
 
         if ($changes !== []) {
             ClientLog::insert($changes);
         }
 
-        return response()->json(new ClientResource($client->fresh()));
+        return response()->json(new ClientResource($client));
     }
 
-    public function destroy(Client $client): JsonResponse
+    public function destroy(Client $client, RadiusProvisioningService $radius): JsonResponse
     {
         $this->authorize('delete', $client);
 
+        $radius->deprovision($client->username);
         $client->delete();
 
         return response()->json(status: 204);
     }
 
     /** يفعّل الاشتراك 30 يوماً من تاريخ الضغط (اليوم)، بغض النظر عن تاريخ الانتهاء الحالي. */
-    public function renew(Client $client): JsonResponse
+    public function renew(Client $client, RadiusProvisioningService $radius): JsonResponse
     {
         $this->authorize('update', $client);
 
         $newEndDate = now()->addDays(30)->toDateString();
 
-        $this->applyDateChange($client, 'renew', $newEndDate);
+        $client = $this->applyDateChange($client, 'renew', $newEndDate, $radius);
 
-        return response()->json(new ClientResource($client->fresh()));
+        return response()->json(new ClientResource($client));
     }
 
     /** يضبط تاريخ الانتهاء ليوم واحد فقط من الآن (تفعيل تجريبي). */
-    public function trial(Client $client): JsonResponse
+    public function trial(Client $client, RadiusProvisioningService $radius): JsonResponse
     {
         $this->authorize('update', $client);
 
         $newEndDate = now()->addDay()->toDateString();
 
-        $this->applyDateChange($client, 'trial_activation', $newEndDate);
+        $client = $this->applyDateChange($client, 'trial_activation', $newEndDate, $radius);
 
-        return response()->json(new ClientResource($client->fresh()));
+        return response()->json(new ClientResource($client));
     }
 
-    private function applyDateChange(Client $client, string $action, string $newEndDate): void
+    private function applyDateChange(Client $client, string $action, string $newEndDate, RadiusProvisioningService $radius): Client
     {
         ClientLog::create([
             'client_id' => $client->id,
@@ -165,6 +173,11 @@ class ClientController extends Controller
         ]);
 
         $client->update(['end_date' => $newEndDate]);
+        $client = $client->fresh();
+
+        $radius->syncExpiration($client);
+
+        return $client;
     }
 
     /** سجل تغييرات هذا المشترك (الأحدث أولاً). */
