@@ -15,15 +15,15 @@ class DashboardController extends Controller
         /** @var Agent $agent */
         $agent = $request->user();
 
-        $today = now()->toDateString();
-        $soon = now()->addDays(7)->toDateString();
+        $now = now();
+        $soon = now()->addDays(7);
 
         $clients = $agent->clients();
 
         $totalClients = (clone $clients)->count();
-        $activeClients = (clone $clients)->whereDate('start_date', '<=', $today)->whereDate('end_date', '>=', $today)->count();
-        $expiredClients = (clone $clients)->whereDate('end_date', '<', $today)->count();
-        $expiringSoon = (clone $clients)->whereDate('end_date', '>=', $today)->whereDate('end_date', '<=', $soon)->count();
+        $activeClients = (clone $clients)->where('start_date', '<=', $now)->where('end_date', '>=', $now)->count();
+        $expiredClients = (clone $clients)->where('end_date', '<', $now)->count();
+        $expiringSoon = (clone $clients)->where('end_date', '>=', $now)->where('end_date', '<=', $soon)->count();
 
         $recentLogs = ClientLog::whereIn('client_id', $agent->clients()->pluck('id'))
             ->latest('created_at')

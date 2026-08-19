@@ -39,7 +39,10 @@ class RadiusProvisioningService
 
     public function syncExpiration(Client $client): void
     {
-        $expiration = $client->end_date->copy()->startOfDay()->format('d M Y H:i:s');
+        // الوقت الكامل مقصود: الاشتراك ينتهي في نفس ساعة/دقيقة إنشائه أو
+        // تجديده بالضبط، وليس عند منتصف ليل اليوم — يطابق FreeRADIUS الذي
+        // يرفض أي محاولة تسجيل دخول بعد هذه اللحظة بالضبط.
+        $expiration = $client->end_date->format('d M Y H:i:s');
 
         RadCheck::updateOrCreate(
             ['username' => $client->username, 'attribute' => 'Expiration'],

@@ -97,14 +97,17 @@ class MikrotikService
     }
 
     /**
-     * أسماء مستخدمي كل الجلسات المتصلة الآن (PPPoE + Hotspot) على راوتر
-     * هذا الوكيل، باتصال واحد يُعاد استخدامه لكل عملائه — بعكس
-     * connectionStatus() التي تفتح اتصالاً جديداً لكل عميل على حدة (مناسب
-     * لفحص عميل واحد، لكنه بطيء جداً عند تكراره لعشرات العملاء).
+     * باتصال واحد فقط بهذا الوكيل (يُعاد استخدامه لكل عملائه، بعكس
+     * connectionStatus() التي تفتح اتصالاً جديداً لكل عميل): تجلب كل
+     * الجلسات النشطة (PPPoE + Hotspot)، وأي جلسة تخص مستخدماً من
+     * $expiredUsernames تُفصل فوراً عبر أمر RouterOS مباشر بدل تركها
+     * متصلة حتى يقطعها العميل بنفسه — ثم تعيد أسماء المتصلين الفعليين
+     * (بعد أي فصل) لتخزينهم في الـ cache.
      *
+     * @param  list<string>  $expiredUsernames
      * @return list<string>
      */
-    public function onlineUsernamesForAgent(Agent $agent): array
+    public function refreshAgentSessions(Agent $agent, array $expiredUsernames): array
     {
         if (! $agent->mikrotik_host || ! $agent->mikrotik_user) {
             return [];
@@ -117,21 +120,38 @@ class MikrotikService
         }
 
         try {
-            $usernames = [];
+            $expired = array_flip($expiredUsernames);
+            $onlineUsernames = [];
 
             foreach ($api->query('/ppp/active/print') as $row) {
-                if (isset($row['name'])) {
-                    $usernames[] = $row['name'];
+                $username = $row['name'] ?? null;
+                if ($username === null) {
+                    continue;
                 }
+
+                if (isset($expired[$username]) && isset($row['.id'])) {
+                    $api->remove('/ppp/active/remove', $row['.id']);
+                    continue;
+                }
+
+                $onlineUsernames[] = $username;
             }
 
             foreach ($api->query('/ip/hotspot/active/print') as $row) {
-                if (isset($row['user'])) {
-                    $usernames[] = $row['user'];
+                $username = $row['user'] ?? null;
+                if ($username === null) {
+                    continue;
                 }
+
+                if (isset($expired[$username]) && isset($row['.id'])) {
+                    $api->remove('/ip/hotspot/active/remove', $row['.id']);
+                    continue;
+                }
+
+                $onlineUsernames[] = $username;
             }
 
-            return $usernames;
+            return $onlineUsernames;
         } catch (MikrotikConnectionException) {
             return [];
         } finally {

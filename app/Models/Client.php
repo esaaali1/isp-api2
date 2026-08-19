@@ -36,8 +36,8 @@ class Client extends Model
     protected function casts(): array
     {
         return [
-            'start_date' => 'date',
-            'end_date' => 'date',
+            'start_date' => 'datetime',
+            'end_date' => 'datetime',
         ];
     }
 
@@ -75,11 +75,12 @@ class Client extends Model
         return $this->hasMany(RadAcct::class, 'username', 'username');
     }
 
+    /** يقارن اللحظة الحالية كاملة (تاريخاً ووقتاً)، وليس التاريخ فقط. */
     public function isActive(): bool
     {
-        $today = now()->toDateString();
+        $now = now();
 
-        return $this->start_date?->toDateString() <= $today
-            && $this->end_date?->toDateString() >= $today;
+        return $this->start_date?->lessThanOrEqualTo($now)
+            && $this->end_date?->greaterThanOrEqualTo($now);
     }
 }

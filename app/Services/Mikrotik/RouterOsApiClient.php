@@ -93,6 +93,29 @@ class RouterOsApiClient
         return $rows;
     }
 
+    /**
+     * Runs a RouterOS "remove" command against a single item by its
+     * ".id" (e.g. "/ppp/active/remove" to forcibly drop an active PPPoE
+     * session — used to disconnect a client the instant their
+     * subscription expires instead of waiting for them to reconnect).
+     */
+    public function remove(string $command, string $id): void
+    {
+        if ($this->socket === null) {
+            throw new MikrotikConnectionException('RouterOS API: not connected.');
+        }
+
+        $this->writeSentence([$command, "=.id={$id}"]);
+
+        while (true) {
+            $sentence = $this->readSentence();
+
+            if ($sentence === [] || $sentence[0] === '!done') {
+                break;
+            }
+        }
+    }
+
     public function close(): void
     {
         if (is_resource($this->socket)) {

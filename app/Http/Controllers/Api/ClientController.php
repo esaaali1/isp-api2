@@ -35,10 +35,10 @@ class ClientController extends Controller
         }
 
         if ($request->string('status')->value() === 'active') {
-            $today = now()->toDateString();
-            $query->whereDate('start_date', '<=', $today)->whereDate('end_date', '>=', $today);
+            $now = now();
+            $query->where('start_date', '<=', $now)->where('end_date', '>=', $now);
         } elseif ($request->string('status')->value() === 'expired') {
-            $query->whereDate('end_date', '<', now()->toDateString());
+            $query->where('end_date', '<', now());
         }
 
         $clients = $query->orderBy('fullname')->paginate($request->integer('per_page', 25));
@@ -73,8 +73,8 @@ class ClientController extends Controller
         $agent = $request->user();
 
         $data = $request->validated();
-        $data['start_date'] ??= now()->toDateString();
-        $data['end_date'] ??= now()->addDays(30)->toDateString();
+        $data['start_date'] ??= now()->toDateTimeString();
+        $data['end_date'] ??= now()->addDays(30)->toDateTimeString();
 
         $client = $agent->clients()->create($data);
         $radius->sync($client);
@@ -139,24 +139,24 @@ class ClientController extends Controller
         return response()->json(status: 204);
     }
 
-    /** يفعّل الاشتراك 30 يوماً من تاريخ الضغط (اليوم)، بغض النظر عن تاريخ الانتهاء الحالي. */
+    /** يفعّل الاشتراك 30 يوماً من لحظة الضغط بالضبط (تاريخاً ووقتاً)، بغض النظر عن تاريخ الانتهاء الحالي. */
     public function renew(Client $client, RadiusProvisioningService $radius): JsonResponse
     {
         $this->authorize('update', $client);
 
-        $newEndDate = now()->addDays(30)->toDateString();
+        $newEndDate = now()->addDays(30)->toDateTimeString();
 
         $client = $this->applyDateChange($client, 'renew', $newEndDate, $radius);
 
         return response()->json(new ClientResource($client));
     }
 
-    /** يضبط تاريخ الانتهاء ليوم واحد فقط من الآن (تفعيل تجريبي). */
+    /** يضبط تاريخ الانتهاء ليوم واحد فقط من لحظة الضغط بالضبط (تفعيل تجريبي). */
     public function trial(Client $client, RadiusProvisioningService $radius): JsonResponse
     {
         $this->authorize('update', $client);
 
-        $newEndDate = now()->addDay()->toDateString();
+        $newEndDate = now()->addDay()->toDateTimeString();
 
         $client = $this->applyDateChange($client, 'trial_activation', $newEndDate, $radius);
 
@@ -168,7 +168,7 @@ class ClientController extends Controller
         ClientLog::create([
             'client_id' => $client->id,
             'action' => $action,
-            'old_value' => $client->end_date?->toDateString(),
+            'old_value' => $client->end_date?->toDateTimeString(),
             'new_value' => $newEndDate,
         ]);
 
