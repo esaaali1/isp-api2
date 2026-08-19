@@ -71,7 +71,11 @@ class ClientController extends Controller
         /** @var Agent $agent */
         $agent = $request->user();
 
-        $client = $agent->clients()->create($request->validated());
+        $data = $request->validated();
+        $data['start_date'] ??= now()->toDateString();
+        $data['end_date'] ??= now()->addDays(30)->toDateString();
+
+        $client = $agent->clients()->create($data);
 
         ClientLog::create([
             'client_id' => $client->id,
