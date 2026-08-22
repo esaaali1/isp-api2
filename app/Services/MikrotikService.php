@@ -160,23 +160,23 @@ class MikrotikService
     }
 
     /**
-     * إحصائيات كاملة عن جهاز المايكروتك الخاص بالوكيل: هوية الجهاز
-     * وموديله ووقت تشغيله، منافذه السلكية الفعلية (بورتات الايثرنت)،
-     * وأجهزة البث ("السكتورات") المتصلة بها فعلياً — تُكتشف عبر
-     * /ip/neighbor/print (بروتوكول MNDP/CDP/LLDP) فتُظهر اسم كل جهاز
-     * وعنوانه ونوعه، ووقت تشغيله إن كان الجهاز من نوع MikroTik (الأجهزة
-     * الأخرى مثل TP-LINK/Ubiquiti لا ترسل وقت تشغيلها عبر هذا البروتوكول).
+     * إحصائيات جهاز المايكروتك الخاص بالوكيل: هوية الجهاز وموديله
+     * ووقت تشغيله، ومنافذ الايثرنت السلكية الفعلية المخصصة للسكتورات
+     * فقط — أي المنافذ الأعضاء في bridge1 (مستبعداً منفذ WAN، عادة
+     * ether1، الذي ليس عضواً في الجسر). لا تُجلب هنا أي بيانات عن
+     * الأجهزة المتصلة خلف هذه المنافذ (كانت النسخة السابقة تعتمد على
+     * /ip/neighbor/print وهذا كان يُظهر خطأً أجهزة مشتركين متصلين من
+     * خلف السكتورات وليس فقط أجهزة البث نفسها).
      *
      * @return array{
      *     online: bool,
      *     router: array{identity: ?string, model: ?string, serial_number: ?string, firmware: ?string, os_version: ?string, uptime: ?string, cpu_load: ?int, free_memory: ?int, total_memory: ?int}|null,
-     *     ports: list<array{name: string, running: bool, mac_address: ?string, last_link_up_time: ?string, last_link_down_time: ?string}>,
-     *     sectors: list<array{identity: ?string, platform: ?string, board: ?string, address: ?string, mac_address: ?string, interface: ?string, uptime: ?string, version: ?string}>,
+     *     ports: list<array{name: string, running: bool, mac_address: ?string}>,
      * }
      */
     public function routerStatistics(Agent $agent): array
     {
-        $empty = ['online' => false, 'router' => null, 'ports' => [], 'sectors' => []];
+        $empty = ['online' => false, 'router' => null, 'ports' => []];
 
         if (! $agent->mikrotik_host || ! $agent->mikrotik_user) {
             return $empty;
@@ -205,32 +205,25 @@ class MikrotikService
                 'total_memory' => isset($resource['total-memory']) ? (int) $resource['total-memory'] : null,
             ];
 
+            $bridgeMembers = [];
+            foreach ($api->query('/interface/bridge/port/print') as $row) {
+                if (isset($row['interface'])) {
+                    $bridgeMembers[$row['interface']] = true;
+                }
+            }
+
             $ports = [];
-            foreach ($api->query('/interface/print') as $row) {
-                if (($row['type'] ?? null) !== 'ether') {
+            foreach ($api->query('/interface/print', ['?type=ether']) as $row) {
+                $name = $row['name'] ?? '';
+
+                if (! isset($bridgeMembers[$name])) {
                     continue;
                 }
 
                 $ports[] = [
-                    'name' => $row['name'] ?? '',
+                    'name' => $name,
                     'running' => ($row['running'] ?? 'false') === 'true',
                     'mac_address' => $row['mac-address'] ?? null,
-                    'last_link_up_time' => $row['last-link-up-time'] ?? null,
-                    'last_link_down_time' => $row['last-link-down-time'] ?? null,
-                ];
-            }
-
-            $sectors = [];
-            foreach ($api->query('/ip/neighbor/print') as $row) {
-                $sectors[] = [
-                    'identity' => $row['identity'] ?? null,
-                    'platform' => $row['platform'] ?? null,
-                    'board' => $row['board'] ?? null,
-                    'address' => $row['address'] ?? $row['address4'] ?? null,
-                    'mac_address' => $row['mac-address'] ?? null,
-                    'interface' => isset($row['interface']) ? explode(',', $row['interface'])[0] : null,
-                    'uptime' => $row['uptime'] ?? null,
-                    'version' => $row['version'] ?? null,
                 ];
             }
 
@@ -238,10 +231,46 @@ class MikrotikService
                 'online' => true,
                 'router' => $router,
                 'ports' => $ports,
-                'sectors' => $sectors,
             ];
         } catch (MikrotikConnectionException) {
             return $empty;
+        } finally {
+            $api->close();
+        }
+    }
+
+    /**
+     * التدفّق اللحظي (بت/ثانية استقبالاً وإرسالاً) لمجموعة منافذ محدّدة،
+     * بلقطة واحدة عبر أمر RouterOS /interface/monitor-traffic (once=) —
+     * يُستدعى دورياً كل بضع ثوانٍ من الواجهة لتحديث أرقام السرعة الحية
+     * لكل منفذ سكتور، دون إعادة جلب بقية إحصائيات الراوتر.
+     *
+     * @param  list<string>  $interfaceNames
+     * @return list<array{name: string, rx_bps: int, tx_bps: int}>
+     */
+    public function portsTraffic(Agent $agent, array $interfaceNames): array
+    {
+        if ($interfaceNames === [] || ! $agent->mikrotik_host || ! $agent->mikrotik_user) {
+            return [];
+        }
+
+        try {
+            $api = $this->connect($agent);
+        } catch (MikrotikConnectionException) {
+            return [];
+        }
+
+        try {
+            $interfaceList = implode(',', $interfaceNames);
+            $rows = $api->query('/interface/monitor-traffic', ["=interface={$interfaceList}", '=once=']);
+
+            return array_map(fn (array $row) => [
+                'name' => $row['name'] ?? '',
+                'rx_bps' => (int) ($row['rx-bits-per-second'] ?? 0),
+                'tx_bps' => (int) ($row['tx-bits-per-second'] ?? 0),
+            ], $rows);
+        } catch (MikrotikConnectionException) {
+            return [];
         } finally {
             $api->close();
         }

@@ -14,6 +14,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/dashboard', [DashboardController::class, 'index']);
     Route::get('/router-stats', [RouterStatsController::class, 'index']);
+    Route::get('/router-stats/traffic', [RouterStatsController::class, 'traffic']);
 
     Route::get('/clients/online', [ClientController::class, 'online']);
     Route::get('/clients/{client}/status', [ClientController::class, 'status']);
