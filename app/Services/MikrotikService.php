@@ -159,6 +159,94 @@ class MikrotikService
         }
     }
 
+    /**
+     * إحصائيات كاملة عن جهاز المايكروتك الخاص بالوكيل: هوية الجهاز
+     * وموديله ووقت تشغيله، منافذه السلكية الفعلية (بورتات الايثرنت)،
+     * وأجهزة البث ("السكتورات") المتصلة بها فعلياً — تُكتشف عبر
+     * /ip/neighbor/print (بروتوكول MNDP/CDP/LLDP) فتُظهر اسم كل جهاز
+     * وعنوانه ونوعه، ووقت تشغيله إن كان الجهاز من نوع MikroTik (الأجهزة
+     * الأخرى مثل TP-LINK/Ubiquiti لا ترسل وقت تشغيلها عبر هذا البروتوكول).
+     *
+     * @return array{
+     *     online: bool,
+     *     router: array{identity: ?string, model: ?string, serial_number: ?string, firmware: ?string, os_version: ?string, uptime: ?string, cpu_load: ?int, free_memory: ?int, total_memory: ?int}|null,
+     *     ports: list<array{name: string, running: bool, mac_address: ?string, last_link_up_time: ?string, last_link_down_time: ?string}>,
+     *     sectors: list<array{identity: ?string, platform: ?string, board: ?string, address: ?string, mac_address: ?string, interface: ?string, uptime: ?string, version: ?string}>,
+     * }
+     */
+    public function routerStatistics(Agent $agent): array
+    {
+        $empty = ['online' => false, 'router' => null, 'ports' => [], 'sectors' => []];
+
+        if (! $agent->mikrotik_host || ! $agent->mikrotik_user) {
+            return $empty;
+        }
+
+        try {
+            $api = $this->connect($agent);
+        } catch (MikrotikConnectionException) {
+            return $empty;
+        }
+
+        try {
+            $identity = $api->query('/system/identity/print')[0] ?? [];
+            $resource = $api->query('/system/resource/print')[0] ?? [];
+            $routerboard = $api->query('/system/routerboard/print')[0] ?? [];
+
+            $router = [
+                'identity' => $identity['name'] ?? null,
+                'model' => $routerboard['model'] ?? $resource['board-name'] ?? null,
+                'serial_number' => $routerboard['serial-number'] ?? null,
+                'firmware' => $routerboard['current-firmware'] ?? null,
+                'os_version' => $resource['version'] ?? null,
+                'uptime' => $resource['uptime'] ?? null,
+                'cpu_load' => isset($resource['cpu-load']) ? (int) $resource['cpu-load'] : null,
+                'free_memory' => isset($resource['free-memory']) ? (int) $resource['free-memory'] : null,
+                'total_memory' => isset($resource['total-memory']) ? (int) $resource['total-memory'] : null,
+            ];
+
+            $ports = [];
+            foreach ($api->query('/interface/print') as $row) {
+                if (($row['type'] ?? null) !== 'ether') {
+                    continue;
+                }
+
+                $ports[] = [
+                    'name' => $row['name'] ?? '',
+                    'running' => ($row['running'] ?? 'false') === 'true',
+                    'mac_address' => $row['mac-address'] ?? null,
+                    'last_link_up_time' => $row['last-link-up-time'] ?? null,
+                    'last_link_down_time' => $row['last-link-down-time'] ?? null,
+                ];
+            }
+
+            $sectors = [];
+            foreach ($api->query('/ip/neighbor/print') as $row) {
+                $sectors[] = [
+                    'identity' => $row['identity'] ?? null,
+                    'platform' => $row['platform'] ?? null,
+                    'board' => $row['board'] ?? null,
+                    'address' => $row['address'] ?? $row['address4'] ?? null,
+                    'mac_address' => $row['mac-address'] ?? null,
+                    'interface' => isset($row['interface']) ? explode(',', $row['interface'])[0] : null,
+                    'uptime' => $row['uptime'] ?? null,
+                    'version' => $row['version'] ?? null,
+                ];
+            }
+
+            return [
+                'online' => true,
+                'router' => $router,
+                'ports' => $ports,
+                'sectors' => $sectors,
+            ];
+        } catch (MikrotikConnectionException) {
+            return $empty;
+        } finally {
+            $api->close();
+        }
+    }
+
     private function connect(Agent $agent): RouterOsApiClient
     {
         if (! $agent->mikrotik_pass) {
