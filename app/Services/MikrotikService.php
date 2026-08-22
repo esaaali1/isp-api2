@@ -171,7 +171,7 @@ class MikrotikService
      * @return array{
      *     online: bool,
      *     router: array{identity: ?string, model: ?string, serial_number: ?string, firmware: ?string, os_version: ?string, uptime: ?string, cpu_load: ?int, free_memory: ?int, total_memory: ?int}|null,
-     *     ports: list<array{name: string, running: bool, mac_address: ?string}>,
+     *     ports: list<array{name: string, running: bool, mac_address: ?string, last_link_up_time: ?string}>,
      * }
      */
     public function routerStatistics(Agent $agent): array
@@ -224,6 +224,7 @@ class MikrotikService
                     'name' => $name,
                     'running' => ($row['running'] ?? 'false') === 'true',
                     'mac_address' => $row['mac-address'] ?? null,
+                    'last_link_up_time' => $row['last-link-up-time'] ?? null,
                 ];
             }
 
