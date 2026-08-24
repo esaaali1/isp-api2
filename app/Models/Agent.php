@@ -29,6 +29,9 @@ class Agent extends Model
         'radius_secret',
         'balance',
         'electronic_payment_enabled',
+        'pay_notify_message',
+        'add_debt_notify_message',
+        'renew_notify_message',
         'start_date',
         'end_date',
     ];
