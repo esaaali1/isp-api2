@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ClientController;
 use App\Http\Controllers\Api\DashboardController;
+use App\Http\Controllers\Api\LogController;
 use App\Http\Controllers\Api\RouterStatsController;
 use Illuminate\Support\Facades\Route;
 
@@ -15,6 +16,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index']);
     Route::get('/router-stats', [RouterStatsController::class, 'index']);
     Route::get('/router-stats/traffic', [RouterStatsController::class, 'traffic']);
+    Route::get('/logs', [LogController::class, 'index']);
 
     Route::get('/clients/online', [ClientController::class, 'online']);
     Route::get('/clients/{client}/status', [ClientController::class, 'status']);
