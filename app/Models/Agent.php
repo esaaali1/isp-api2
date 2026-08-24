@@ -27,6 +27,8 @@ class Agent extends Model
         'mikrotik_pass',
         'mikrotik_port',
         'radius_secret',
+        'balance',
+        'electronic_payment_enabled',
         'start_date',
         'end_date',
     ];
@@ -46,6 +48,8 @@ class Agent extends Model
             // table is still shared with legacy isp-panel, values here are
             // plain text, so auto-hashing on write would corrupt them.
             'mikrotik_port' => 'integer',
+            'balance' => 'integer',
+            'electronic_payment_enabled' => 'boolean',
             'start_date' => 'date',
             'end_date' => 'date',
         ];
@@ -54,6 +58,11 @@ class Agent extends Model
     public function clients(): HasMany
     {
         return $this->hasMany(Client::class);
+    }
+
+    public function packagePrices(): HasMany
+    {
+        return $this->hasMany(PackagePrice::class);
     }
 
     public function isSubscriptionActive(): bool

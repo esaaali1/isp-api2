@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\ClientController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\LogController;
 use App\Http\Controllers\Api\RouterStatsController;
+use App\Http\Controllers\Api\SettingsController;
 use Illuminate\Support\Facades\Route;
 
 Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:6,1');
@@ -17,6 +18,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/router-stats', [RouterStatsController::class, 'index']);
     Route::get('/router-stats/traffic', [RouterStatsController::class, 'traffic']);
     Route::get('/logs', [LogController::class, 'index']);
+    Route::get('/settings', [SettingsController::class, 'show']);
+    Route::put('/settings', [SettingsController::class, 'update']);
 
     Route::get('/clients/online', [ClientController::class, 'online']);
     Route::get('/clients/{client}/status', [ClientController::class, 'status']);
