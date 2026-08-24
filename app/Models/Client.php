@@ -28,7 +28,9 @@ class Client extends Model
         'fullname',
         'username',
         'password',
+        'phone',
         'package',
+        'debt',
         'start_date',
         'end_date',
     ];
@@ -36,6 +38,7 @@ class Client extends Model
     protected function casts(): array
     {
         return [
+            'debt' => 'integer',
             'start_date' => 'datetime',
             'end_date' => 'datetime',
         ];

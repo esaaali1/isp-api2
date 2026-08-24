@@ -26,5 +26,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/clients/{client}/logs', [ClientController::class, 'logs']);
     Route::post('/clients/{client}/renew', [ClientController::class, 'renew']);
     Route::post('/clients/{client}/trial', [ClientController::class, 'trial']);
+    Route::post('/clients/{client}/debt/pay', [ClientController::class, 'payDebt']);
+    Route::post('/clients/{client}/debt/add', [ClientController::class, 'addDebt']);
     Route::apiResource('clients', ClientController::class);
 });
