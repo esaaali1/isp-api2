@@ -37,6 +37,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/agents/logs', [AdminAgentController::class, 'logs']);
         Route::get('/agents/{agent}', [AdminAgentController::class, 'show']);
         Route::put('/agents/{agent}', [AdminAgentController::class, 'update']);
+        Route::delete('/agents/{agent}', [AdminAgentController::class, 'destroy']);
         Route::get('/agents/{agent}/logs', [AdminAgentController::class, 'agentLogs']);
+        Route::post('/agents/{agent}/renew', [AdminAgentController::class, 'renew']);
     });
 });
