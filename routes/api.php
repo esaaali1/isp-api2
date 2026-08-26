@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\Admin\AgentController as AdminAgentController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ClientController;
 use App\Http\Controllers\Api\DashboardController;
@@ -29,4 +30,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/clients/{client}/debt/pay', [ClientController::class, 'payDebt']);
     Route::post('/clients/{client}/debt/add', [ClientController::class, 'addDebt']);
     Route::apiResource('clients', ClientController::class);
+
+    Route::middleware('admin')->prefix('admin')->group(function () {
+        Route::get('/agents', [AdminAgentController::class, 'index']);
+        Route::get('/agents/online', [AdminAgentController::class, 'online']);
+        Route::get('/agents/logs', [AdminAgentController::class, 'logs']);
+        Route::get('/agents/{agent}', [AdminAgentController::class, 'show']);
+        Route::put('/agents/{agent}', [AdminAgentController::class, 'update']);
+        Route::get('/agents/{agent}/logs', [AdminAgentController::class, 'agentLogs']);
+    });
 });

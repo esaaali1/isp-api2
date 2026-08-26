@@ -141,16 +141,19 @@ class ClientController extends Controller
     }
 
     /**
-     * يفعّل الاشتراك 30 يوماً من لحظة الضغط بالضبط (تاريخاً ووقتاً)، بغض
-     * النظر عن تاريخ الانتهاء الحالي. إن لم يكن التجديد "واصل" (مدفوعاً)
-     * يُضاف سعر الباقة الحالية إلى دين المشترك تلقائياً.
+     * يضيف 30 يوماً إلى تاريخ الانتهاء الحالي للمشترك (وليس من لحظة
+     * الضغط) — فمشترك متبقٍ له 10 أيام يصبح لديه 40 يوماً، ومشترك منتهي
+     * الاشتراك تُحتسب له الأيام الثلاثون من تاريخ انتهائه السابق أيضاً.
+     * إن لم يكن التجديد "واصل" (مدفوعاً) يُضاف سعر الباقة الحالية إلى دين
+     * المشترك تلقائياً.
      */
     public function renew(Request $request, Client $client, RadiusProvisioningService $radius): JsonResponse
     {
         $this->authorize('update', $client);
 
         $paid = $request->boolean('paid', true);
-        $newEndDate = now()->addDays(30)->toDateTimeString();
+        $base = $client->end_date ?? now();
+        $newEndDate = $base->copy()->addDays(30)->toDateTimeString();
 
         $client = $this->applyDateChange($client, 'renew', $newEndDate, $radius);
 

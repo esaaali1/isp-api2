@@ -21,6 +21,7 @@ class Agent extends Model
     protected $fillable = [
         'name',
         'username',
+        'is_admin',
         'password',
         'mikrotik_host',
         'mikrotik_user',
@@ -52,6 +53,7 @@ class Agent extends Model
             // plain text, so auto-hashing on write would corrupt them.
             'mikrotik_port' => 'integer',
             'balance' => 'integer',
+            'is_admin' => 'boolean',
             'electronic_payment_enabled' => 'boolean',
             'start_date' => 'date',
             'end_date' => 'date',
@@ -66,6 +68,11 @@ class Agent extends Model
     public function packagePrices(): HasMany
     {
         return $this->hasMany(PackagePrice::class);
+    }
+
+    public function logs(): HasMany
+    {
+        return $this->hasMany(AgentLog::class);
     }
 
     public function isSubscriptionActive(): bool

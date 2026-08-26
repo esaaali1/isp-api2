@@ -277,6 +277,35 @@ class MikrotikService
         }
     }
 
+    /**
+     * تحقق سريع مما إذا كان جهاز مايكروتك هذا الوكيل قابلاً للاتصال به
+     * الآن — يُستخدم في لوحة الإدارة لتحديد "الوكلاء المتصلين" دون جلب
+     * كل إحصائيات الجهاز (أخف من routerStatistics عند فحص عدة وكلاء
+     * تباعاً).
+     */
+    public function pingAgent(Agent $agent): bool
+    {
+        if (! $agent->mikrotik_host || ! $agent->mikrotik_user) {
+            return false;
+        }
+
+        try {
+            $api = $this->connect($agent);
+        } catch (MikrotikConnectionException) {
+            return false;
+        }
+
+        try {
+            $api->query('/system/identity/print');
+
+            return true;
+        } catch (MikrotikConnectionException) {
+            return false;
+        } finally {
+            $api->close();
+        }
+    }
+
     private function connect(Agent $agent): RouterOsApiClient
     {
         if (! $agent->mikrotik_pass) {

@@ -38,7 +38,7 @@ class AuthController extends Controller
             ]);
         }
 
-        if (! $agent->isSubscriptionActive()) {
+        if (! $agent->is_admin && ! $agent->isSubscriptionActive()) {
             return response()->json([
                 'message' => 'اشتراك الوكيل منتهي أو غير مفعّل بعد.',
             ], 403);
@@ -55,6 +55,7 @@ class AuthController extends Controller
                 'name' => $agent->name,
                 'username' => $agent->username,
                 'end_date' => $agent->end_date?->toDateString(),
+                'is_admin' => $agent->is_admin,
             ],
         ]);
     }
@@ -77,6 +78,7 @@ class AuthController extends Controller
             'username' => $agent->username,
             'start_date' => $agent->start_date?->toDateString(),
             'end_date' => $agent->end_date?->toDateString(),
+            'is_admin' => $agent->is_admin,
         ]);
     }
 }
