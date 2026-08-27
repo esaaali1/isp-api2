@@ -24,6 +24,8 @@ class AdminAgentResource extends JsonResource
             'mikrotik_user' => $this->mikrotik_user,
             'mikrotik_pass' => $this->mikrotik_pass,
             'mikrotik_port' => $this->mikrotik_port,
+            'wireguard_private_key' => $this->wireguard_private_key,
+            'wireguard_public_key' => $this->wireguard_public_key,
             'clients_count' => $this->clients_count,
             'start_date' => $this->start_date?->toDateString(),
             'end_date' => $this->end_date?->toDateString(),

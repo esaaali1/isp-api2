@@ -12,6 +12,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Symfony\Component\Process\Process;
 
 /** لوحة الإدارة: إدارة كل حسابات الوكلاء (غير حسابات الإدارة نفسها). محمي بـ middleware('admin'). */
 class AgentController extends Controller
@@ -67,6 +68,102 @@ class AgentController extends Controller
         abort_if($agent->is_admin, 404);
 
         return response()->json(new AdminAgentResource($agent->loadCount('clients')));
+    }
+
+    /**
+     * ينشئ وكيلاً جديداً: يولّد زوج مفاتيح WireGuard، يخصّص له أول عنوان
+     * 10.0.0.X متاح (بعد آخر عنوان مستخدم فعلياً، بلا إعادة استخدام
+     * فراغات)، يضيفه كـ Peer حي في wg0.conf وكعميل في FreeRADIUS عبر
+     * سكربت مقيَّد بصلاحية sudo محدودة (انظر isp-provision-agent.sh —
+     * لا يلمس أي وكيل موجود، ولا يوقف أي خدمة بالكامل)، ولا يُنشئ صف
+     * الوكيل في قاعدة البيانات إلا بعد نجاح هذا التزويد فعلياً.
+     */
+    public function store(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'username' => ['required', 'string', 'max:255', 'unique:agents,username'],
+            'password' => ['required', 'string', 'min:4'],
+            'mikrotik_user' => ['required', 'string', 'max:255'],
+            'mikrotik_pass' => ['required', 'string', 'max:255'],
+            'mikrotik_port' => ['required', 'integer', 'min:1', 'max:65535'],
+        ]);
+
+        $genkey = new Process(['wg', 'genkey']);
+        $genkey->mustRun();
+        $privateKey = trim($genkey->getOutput());
+
+        $pubkeyProcess = new Process(['wg', 'pubkey']);
+        $pubkeyProcess->setInput($privateKey);
+        $pubkeyProcess->mustRun();
+        $publicKey = trim($pubkeyProcess->getOutput());
+
+        $octet = $this->nextWireguardOctet();
+        if ($octet > 254) {
+            return response()->json(['message' => 'نطاق عناوين WireGuard ممتلئ (10.0.0.0/24).'], 500);
+        }
+
+        $wgIp = "10.0.0.{$octet}";
+        $slug = "mikrotik_{$octet}";
+
+        $provision = new Process(['sudo', '/usr/local/sbin/isp-provision-agent.sh', (string) $octet, $publicKey, $slug]);
+        $provision->setTimeout(20);
+        $provision->run();
+
+        if (! $provision->isSuccessful()) {
+            $error = trim($provision->getErrorOutput() ?: $provision->getOutput()) ?: 'خطأ غير معروف.';
+
+            return response()->json(['message' => "فشل تجهيز اتصال WireGuard/RADIUS: {$error}"], 500);
+        }
+
+        $agent = Agent::create([
+            'name' => $validated['name'],
+            'username' => $validated['username'],
+            'password' => $validated['password'],
+            'is_admin' => false,
+            'mikrotik_host' => $wgIp,
+            'mikrotik_user' => $validated['mikrotik_user'],
+            'mikrotik_pass' => $validated['mikrotik_pass'],
+            'mikrotik_port' => $validated['mikrotik_port'],
+            'wireguard_private_key' => $privateKey,
+            'wireguard_public_key' => $publicKey,
+            'balance' => 0,
+            'electronic_payment_enabled' => false,
+            'start_date' => now()->toDateString(),
+            'end_date' => now()->addDays(30)->toDateString(),
+        ]);
+
+        AgentLog::create([
+            'agent_id' => $agent->id,
+            'action' => 'created',
+            'old_value' => null,
+            'new_value' => $agent->username,
+        ]);
+
+        return response()->json(new AdminAgentResource($agent->loadCount('clients')), 201);
+    }
+
+    /**
+     * أول عنوان 10.0.0.X متاح بعد آخر عنوان مستخدم فعلياً — يفحص كلاً من
+     * wg0.conf الحي وجدول agents معاً (احتياطاً من أي تعارض بينهما).
+     */
+    private function nextWireguardOctet(): int
+    {
+        $used = [1]; // 10.0.0.1 هو عنوان الواجهة نفسها
+
+        $wgConf = @file_get_contents('/etc/wireguard/wg0.conf') ?: '';
+        preg_match_all('/AllowedIPs\s*=\s*10\.0\.0\.(\d+)\/32/', $wgConf, $matches);
+        foreach ($matches[1] as $octet) {
+            $used[] = (int) $octet;
+        }
+
+        foreach (Agent::whereNotNull('mikrotik_host')->pluck('mikrotik_host') as $host) {
+            if (preg_match('/^10\.0\.0\.(\d+)$/', (string) $host, $m)) {
+                $used[] = (int) $m[1];
+            }
+        }
+
+        return max($used) + 1;
     }
 
     public function update(Request $request, Agent $agent): JsonResponse

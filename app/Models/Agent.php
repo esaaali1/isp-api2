@@ -28,6 +28,8 @@ class Agent extends Model
         'mikrotik_pass',
         'mikrotik_port',
         'radius_secret',
+        'wireguard_private_key',
+        'wireguard_public_key',
         'balance',
         'electronic_payment_enabled',
         'pay_notify_message',
@@ -41,6 +43,7 @@ class Agent extends Model
         'password',
         'mikrotik_pass',
         'radius_secret',
+        'wireguard_private_key',
     ];
 
     protected function casts(): array

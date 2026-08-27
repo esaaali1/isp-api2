@@ -33,6 +33,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::middleware('admin')->prefix('admin')->group(function () {
         Route::get('/agents', [AdminAgentController::class, 'index']);
+        Route::post('/agents', [AdminAgentController::class, 'store']);
         Route::get('/agents/online', [AdminAgentController::class, 'online']);
         Route::get('/agents/logs', [AdminAgentController::class, 'logs']);
         Route::get('/agents/{agent}', [AdminAgentController::class, 'show']);
