@@ -244,10 +244,21 @@ class AgentController extends Controller
      * ترتبط بقيد خارجي بجدول clients، فحذف صفوف المشتركين وحده كان
      * سيُبقي حسابات PPPoE فعّالة قادرة على الاتصال رغم اختفائها من
      * النظام. كل شيء داخل معاملة واحدة لتفادي حذف جزئي عند أي خطأ.
+     *
+     * بعد نجاح حذف قاعدة البيانات، يزيل أيضاً اتصال WireGuard وعميل
+     * RADIUS الخاصين بالوكيل نفسه (وليس مشتركيه) — فقط إن كان مزوَّداً
+     * عبر هذا النظام أصلاً (له مفتاح WireGuard مخزَّن)؛ الوكلاء القدامى
+     * المُعدّون يدوياً قبل هذه الميزة تُترك اتصالاتهم كما هي دون أي مساس.
      */
     public function destroy(Agent $agent, RadiusProvisioningService $radius): JsonResponse
     {
         abort_if($agent->is_admin, 404);
+
+        $wgPublicKey = $agent->wireguard_public_key;
+        $octet = null;
+        if ($wgPublicKey && preg_match('/^10\.0\.0\.(\d+)$/', (string) $agent->mikrotik_host, $m)) {
+            $octet = (int) $m[1];
+        }
 
         DB::transaction(function () use ($agent, $radius) {
             foreach ($agent->clients()->pluck('username') as $username) {
@@ -257,6 +268,17 @@ class AgentController extends Controller
             $agent->tokens()->delete();
             $agent->delete();
         });
+
+        if ($octet !== null) {
+            $deprovision = new Process([
+                'sudo', '/usr/local/sbin/isp-deprovision-agent.sh',
+                (string) $octet, $wgPublicKey, "mikrotik_{$octet}",
+            ]);
+            $deprovision->setTimeout(20);
+            $deprovision->run();
+            // لا نفشل الطلب لو تعذّرت إزالة الشبكة بعد نجاح حذف الوكيل
+            // من قاعدة البيانات فعلاً — الوكيل صار غير موجود على أي حال.
+        }
 
         return response()->json(status: 204);
     }
