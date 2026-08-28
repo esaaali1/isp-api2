@@ -6,10 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\AdminAgentResource;
 use App\Models\Agent;
 use App\Models\AgentLog;
-use App\Services\MikrotikService;
 use App\Services\RadiusProvisioningService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Symfony\Component\Process\Process;
@@ -17,10 +17,6 @@ use Symfony\Component\Process\Process;
 /** لوحة الإدارة: إدارة كل حسابات الوكلاء (غير حسابات الإدارة نفسها). محمي بـ middleware('admin'). */
 class AgentController extends Controller
 {
-    public function __construct(private readonly MikrotikService $mikrotik)
-    {
-    }
-
     /** كل الوكلاء (أو المنتهية اشتراكاتهم فقط عبر status=expired)، مع عدد مشتركي كل وكيل. */
     public function index(Request $request): JsonResponse
     {
@@ -42,14 +38,21 @@ class AgentController extends Controller
         return response()->json(AdminAgentResource::collection($agents)->response()->getData(true));
     }
 
-    /** الوكلاء المتصلون الآن — عبر محاولة اتصال حية بجهاز المايكروتك الخاص بكل وكيل. */
+    /**
+     * الوكلاء المتصلون الآن — من cache يُحدَّث كل دقيقة عبر أمر
+     * agents:refresh-online-status (بدل فحص كل وكيل حياً عند كل طلب،
+     * وهو ما كان يستغرق حتى نصف دقيقة مع عدة وكلاء).
+     */
     public function online(): JsonResponse
     {
-        $agents = Agent::where('is_admin', false)->withCount('clients')->get();
+        $onlineIds = Cache::get('admin_online_agents', []);
 
-        $online = $agents->filter(fn (Agent $agent) => $this->mikrotik->pingAgent($agent))->values();
+        $agents = Agent::where('is_admin', false)
+            ->whereIn('id', $onlineIds)
+            ->withCount('clients')
+            ->get();
 
-        return response()->json(AdminAgentResource::collection($online));
+        return response()->json(AdminAgentResource::collection($agents));
     }
 
     /** سجل التغييرات على كل الوكلاء مجتمعين (الأحدث أولاً)، مع اسم الوكيل صاحب كل تغيير. */
