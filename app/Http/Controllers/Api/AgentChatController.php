@@ -148,15 +148,36 @@ class AgentChatController extends Controller
                 return $content;
             }
 
-            $payloadMessages[] = $choice;
-            $messages[] = $choice;
+            // نعيد بناء رسالة المساعد بالحقول الضرورية فقط بدل تخزين رد
+            // Groq الخام كما هو — أي حقول إضافية قد يعيدها المزوّد
+            // (reasoning، إلخ) لا حاجة لها هنا وقد تُربك القالب عند
+            // إعادة إرسالها بجولة لاحقة.
+            $assistantMessage = [
+                'role' => 'assistant',
+                'content' => $choice['content'] ?? null,
+                'tool_calls' => array_map(fn (array $tc) => [
+                    'id' => $tc['id'],
+                    'type' => 'function',
+                    'function' => [
+                        'name' => $tc['function']['name'] ?? '',
+                        'arguments' => $tc['function']['arguments'] ?? '{}',
+                    ],
+                ], $toolCalls),
+            ];
+            $payloadMessages[] = $assistantMessage;
+            $messages[] = $assistantMessage;
 
             foreach ($toolCalls as $toolCall) {
                 $result = $this->executeTool($toolCall, $username);
 
+                // "name" مطلوب صراحة هنا لهذا النموذج (قالب harmony)، رغم
+                // أن tool_call_id وحده يكفي حسب توصيف OpenAI الرسمي —
+                // بدونه يرفض الطلب بخطأ "Tools should have a name!" عند
+                // إعادة إرسال هذه الرسالة ضمن الجولة التالية.
                 $toolMessage = [
                     'role' => 'tool',
                     'tool_call_id' => $toolCall['id'],
+                    'name' => $toolCall['function']['name'] ?? '',
                     'content' => json_encode($result, JSON_UNESCAPED_UNICODE),
                 ];
                 $payloadMessages[] = $toolMessage;
