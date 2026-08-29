@@ -15,14 +15,20 @@ use Illuminate\Support\Facades\Log;
 
 /**
  * شات ذكاء اصطناعي لزوار/وكلاء الموقع التسويقي (cloudsaas1.com) — مسار
- * عام بلا مصادقة Sanctum (الجلسة تُعرَّف بـ session_id من الواجهة، لا
- * بحساب مسجَّل دخوله). أول خطوة بكل محادثة: التحقق من اسم مستخدم الوكيل
- * مقابل جدول agents فعلياً قبل السماح بأي سؤال (انظر handleUsernameStep).
- * بعدها يستخدم Groq API مع Tool Use لأداتين للقراءة فقط فقط، كلتاهما
- * مُقيَّدتان صراحة ببيانات الوكيل المتحقق منه بهذه الجلسة تحديداً — اسم
- * المستخدم يُحقَن من الجلسة عند التنفيذ ولا يُقرأ أبداً من معطيات
- * النموذج، فلا يمكن بأي شكل (ولا حتى لو حاول النموذج) الوصول لبيانات
- * وكيل أو عميل آخر.
+ * عام بلا مصادقة Sanctum (الجلسة تُعرَّف بـ session_id من الواجهة).
+ *
+ * تسلسل الحالة إلزامي بثلاث مراحل، ولا يمكن تجاوزه: pending_username
+ * (بانتظار اسم المستخدم) → بانتظار كلمة المرور المطابقة له (مُخزَّنة
+ * كـ pending_username بالجلسة) → verified_username (بعد تحقق ناجح من
+ * الاثنين معاً مقابل agents، بنفس منطق AuthController::login بالضبط).
+ * verified_username بمجرد ضبطه لا يُقرأ أو يُكتَب أبداً من أي مكان آخر
+ * غير خطوة التحقق نفسها — reply() تتحقق من هذا الشرط أولاً قبل أي شيء،
+ * فرسائل المحادثة العادية لا تستطيع بنيوياً تعديل الهوية الموثَّقة مهما
+ * كان محتواها.
+ *
+ * الأدوات كلها للقراءة فقط، وتُنفَّذ دائماً باسم مستخدم الجلسة الموثَّق
+ * — لا يُقرأ أبداً من معطيات النموذج (arguments)، فلا يمكن لأي وكيل رؤية
+ * بيانات وكيل آخر مهما حاول النموذج أو المستخدم.
  */
 class AgentChatController extends Controller
 {
@@ -30,11 +36,11 @@ class AgentChatController extends Controller
 
     private const SESSION_TTL_MINUTES = 30;
 
-    /** أقصى عدد رسائل نُبقيها بذاكرة الجلسة، لتفادي نمو غير محدود لحجم كل طلب. */
     private const MAX_HISTORY_MESSAGES = 20;
 
-    /** أقصى عدد جولات "أداة ثم رد" ضمن رد واحد، تحسباً من حلقة استدعاء أدوات لا تنتهي. */
     private const MAX_TOOL_ROUNDS = 3;
+
+    private const MAX_IP_LIST_RESULTS = 100;
 
     public function __construct(private readonly MikrotikService $mikrotik)
     {
@@ -48,31 +54,75 @@ class AgentChatController extends Controller
         ]);
 
         $cacheKey = "agent_chat_session:{$validated['session_id']}";
-        $session = Cache::get($cacheKey, ['username' => null, 'messages' => []]);
+        $session = Cache::get($cacheKey, $this->freshSession());
 
-        if ($session['username'] === null) {
+        // بمجرد التحقق، أي رسالة لاحقة تذهب لمسار المحادثة فقط — لا مسار
+        // آخر بهذا الكونترولر يكتب على verified_username إطلاقاً.
+        if ($session['verified_username'] !== null) {
+            return $this->handleChatStep($cacheKey, $session, $validated['message']);
+        }
+
+        if ($session['pending_username'] === null) {
             return $this->handleUsernameStep($cacheKey, $session, trim($validated['message']));
         }
 
-        return $this->handleChatStep($cacheKey, $session, $validated['message']);
+        return $this->handlePasswordStep($cacheKey, $session, $validated['message']);
     }
 
-    /** يتحقق من اسم المستخدم مقابل جدول agents، ولا يبدأ أي محادثة فعلية إلا بعد نجاحه. */
-    private function handleUsernameStep(string $cacheKey, array $session, string $attemptedUsername): JsonResponse
+    private function freshSession(): array
     {
-        $agent = Agent::where('username', $attemptedUsername)->where('is_admin', false)->first();
+        return ['pending_username' => null, 'verified_username' => null, 'messages' => []];
+    }
 
-        if (! $agent) {
+    private function handleUsernameStep(string $cacheKey, array $session, string $usernameAttempt): JsonResponse
+    {
+        if ($usernameAttempt === '') {
             return response()->json([
-                'reply' => 'اسم المستخدم غير صحيح، يرجى إدخال اسم المستخدم الخاص بلوحة تحكمك مرة أخرى.',
+                'reply' => 'يرجى إدخال اسم المستخدم الخاص بلوحة تحكمك.',
+                'stage' => 'username',
             ]);
         }
 
-        $session['username'] = $agent->username;
+        // لا نتحقق من وجود الاسم هنا عمداً — التحقق الملزم الوحيد يحدث
+        // بخطوة كلمة المرور، معاً، لتفادي كشف أي اسم مستخدم صحيح بردٍّ
+        // مختلف عن اسم خاطئ (username enumeration).
+        $session['pending_username'] = $usernameAttempt;
         Cache::put($cacheKey, $session, now()->addMinutes(self::SESSION_TTL_MINUTES));
 
         return response()->json([
-            'reply' => "مرحباً {$agent->name}! كيف أقدر أساعدك اليوم؟",
+            'reply' => 'الرجاء إدخال كلمة المرور الخاصة بلوحة تحكمك للتحقق من هويتك.',
+            'stage' => 'password',
+        ]);
+    }
+
+    /** نفس منطق AuthController::login بالضبط: كلمة مرور مطابقة (نص صريح حالياً)، ليس حساب إدارة، واشتراك فعّال. */
+    private function handlePasswordStep(string $cacheKey, array $session, string $password): JsonResponse
+    {
+        $username = $session['pending_username'];
+        $agent = Agent::where('username', $username)->first();
+
+        $valid = $agent
+            && ! $agent->is_admin
+            && hash_equals($agent->password, $password)
+            && $agent->isSubscriptionActive();
+
+        if (! $valid) {
+            $session['pending_username'] = null;
+            Cache::put($cacheKey, $session, now()->addMinutes(self::SESSION_TTL_MINUTES));
+
+            return response()->json([
+                'reply' => 'اسم المستخدم أو كلمة المرور غير صحيحة. يرجى إدخال اسم المستخدم مرة أخرى.',
+                'stage' => 'username',
+            ]);
+        }
+
+        $session['pending_username'] = null;
+        $session['verified_username'] = $agent->username;
+        Cache::put($cacheKey, $session, now()->addMinutes(self::SESSION_TTL_MINUTES));
+
+        return response()->json([
+            'reply' => "مرحباً {$agent->name}! تم التحقق من هويتك بنجاح، كيف أقدر أساعدك اليوم؟",
+            'stage' => 'chat',
         ]);
     }
 
@@ -88,7 +138,7 @@ class AgentChatController extends Controller
         $messages = $session['messages'];
         $messages[] = ['role' => 'user', 'content' => $message];
 
-        $reply = $this->completeWithTools($apiKey, $session['username'], $messages);
+        $reply = $this->completeWithTools($apiKey, $session['verified_username'], $messages);
 
         if ($reply === null) {
             return response()->json(['message' => 'تعذر الحصول على رد الآن، حاول مرة أخرى.'], 502);
@@ -97,15 +147,14 @@ class AgentChatController extends Controller
         $session['messages'] = array_slice($messages, -self::MAX_HISTORY_MESSAGES);
         Cache::put($cacheKey, $session, now()->addMinutes(self::SESSION_TTL_MINUTES));
 
-        return response()->json(['reply' => $reply]);
+        return response()->json(['reply' => $reply, 'stage' => 'chat']);
     }
 
     /**
-     * يرسل المحادثة لـ Groq مع تعريف الأداتين. إن طلب النموذج استدعاء
+     * يرسل المحادثة لـ Groq مع تعريف الأدوات. إن طلب النموذج استدعاء
      * أداة (أو أكثر)، يُنفَّذها محلياً — مقيَّدة بـ $username الحقيقي
      * دائماً بغض النظر عمّا يرسله النموذج — ثم يعيد نتيجتها للنموذج
-     * ليصوغ رداً نهائياً. $messages مُمرَّرة بالمرجع لتحديثها بكل ما
-     * يُضاف للمحادثة (رسائل الأداة تُحفظ بذاكرة الجلسة أيضاً).
+     * ليصوغ رداً نهائياً.
      */
     private function completeWithTools(string $apiKey, string $username, array &$messages): ?string
     {
@@ -148,10 +197,6 @@ class AgentChatController extends Controller
                 return $content;
             }
 
-            // نعيد بناء رسالة المساعد بالحقول الضرورية فقط بدل تخزين رد
-            // Groq الخام كما هو — أي حقول إضافية قد يعيدها المزوّد
-            // (reasoning، إلخ) لا حاجة لها هنا وقد تُربك القالب عند
-            // إعادة إرسالها بجولة لاحقة.
             $assistantMessage = [
                 'role' => 'assistant',
                 'content' => $choice['content'] ?? null,
@@ -170,10 +215,6 @@ class AgentChatController extends Controller
             foreach ($toolCalls as $toolCall) {
                 $result = $this->executeTool($toolCall, $username);
 
-                // "name" مطلوب صراحة هنا لهذا النموذج (قالب harmony)، رغم
-                // أن tool_call_id وحده يكفي حسب توصيف OpenAI الرسمي —
-                // بدونه يرفض الطلب بخطأ "Tools should have a name!" عند
-                // إعادة إرسال هذه الرسالة ضمن الجولة التالية.
                 $toolMessage = [
                     'role' => 'tool',
                     'tool_call_id' => $toolCall['id'],
@@ -189,9 +230,9 @@ class AgentChatController extends Controller
     }
 
     /**
-     * تعريف الأداتين بصيغة Groq/OpenAI. عمداً: لا "username" ضمن أي منهما
-     * — لا نمنح النموذج فرصة تمرير اسم مستخدم مختلف أصلاً، الأداة تُنفَّذ
-     * دائماً باسم مستخدم الوكيل المتحقق منه بالجلسة فقط.
+     * تعريف الأدوات بصيغة Groq/OpenAI. عمداً: لا "username" ضمن أي منها
+     * — لا نمنح النموذج فرصة تمرير اسم مستخدم مختلف أصلاً، كل أداة
+     * تُنفَّذ دائماً باسم مستخدم الوكيل الموثَّق بالجلسة فقط.
      */
     private function toolDefinitions(): array
     {
@@ -201,11 +242,7 @@ class AgentChatController extends Controller
                 'function' => [
                     'name' => 'get_mikrotik_status',
                     'description' => 'استخدم هذي الأداة عندما يسأل الوكيل عن مشاكل تقنية بجهازه (بطء، انقطاع، ضعف انترنت، أو أي استفسار عن حالة جهازه).',
-                    'parameters' => [
-                        'type' => 'object',
-                        'properties' => new \stdClass(),
-                        'required' => [],
-                    ],
+                    'parameters' => ['type' => 'object', 'properties' => new \stdClass(), 'required' => []],
                 ],
             ],
             [
@@ -225,13 +262,26 @@ class AgentChatController extends Controller
                     ],
                 ],
             ],
+            [
+                'type' => 'function',
+                'function' => [
+                    'name' => 'get_agent_subscribers_count',
+                    'description' => 'استخدم هذي الأداة عندما يسأل الوكيل عن العدد الكلي لمشتركيه.',
+                    'parameters' => ['type' => 'object', 'properties' => new \stdClass(), 'required' => []],
+                ],
+            ],
+            [
+                'type' => 'function',
+                'function' => [
+                    'name' => 'list_agent_subscribers_ips',
+                    'description' => 'استخدم هذي الأداة عندما يسأل الوكيل عن عناوين IP الحالية لمشتركيه المتصلين الآن.',
+                    'parameters' => ['type' => 'object', 'properties' => new \stdClass(), 'required' => []],
+                ],
+            ],
         ];
     }
 
-    /**
-     * ينفّذ أداة واحدة. $username هو دائماً اسم مستخدم الوكيل المتحقق
-     * منه بهذه الجلسة تحديداً — أساس عزل بيانات كل وكيل عن غيره.
-     */
+    /** $username دائماً هو اسم مستخدم الوكيل الموثَّق بهذه الجلسة تحديداً — أساس عزل بيانات كل وكيل عن غيره. */
     private function executeTool(array $toolCall, string $username): array
     {
         $name = $toolCall['function']['name'] ?? '';
@@ -239,13 +289,21 @@ class AgentChatController extends Controller
         return match ($name) {
             'get_mikrotik_status' => $this->getMikrotikStatus($username),
             'check_client_status' => $this->checkClientStatus($username, $toolCall),
+            'get_agent_subscribers_count' => $this->getAgentSubscribersCount($username),
+            'list_agent_subscribers_ips' => $this->listAgentSubscribersIps($username),
             default => ['error' => 'أداة غير معروفة.'],
         };
     }
 
+    /** يعيد الوكيل الموثَّق بالجلسة من قاعدة البيانات فعلياً في كل استدعاء — لا يُمرَّر ككائن محفوظ مسبقاً. */
+    private function resolveAgent(string $username): ?Agent
+    {
+        return Agent::where('username', $username)->where('is_admin', false)->first();
+    }
+
     private function getMikrotikStatus(string $username): array
     {
-        $agent = Agent::where('username', $username)->where('is_admin', false)->first();
+        $agent = $this->resolveAgent($username);
         if (! $agent) {
             return ['error' => 'تعذر التعرف على حساب الوكيل.'];
         }
@@ -267,10 +325,9 @@ class AgentChatController extends Controller
         ];
     }
 
-    /** $toolCall['function']['arguments'] هو نص JSON من النموذج — client_code فقط، لا username إطلاقاً. */
     private function checkClientStatus(string $username, array $toolCall): array
     {
-        $agent = Agent::where('username', $username)->where('is_admin', false)->first();
+        $agent = $this->resolveAgent($username);
         if (! $agent) {
             return ['error' => 'تعذر التعرف على حساب الوكيل.'];
         }
@@ -303,6 +360,48 @@ class AgentChatController extends Controller
             'client_name' => $client->fullname,
             'connected_now' => $connectedNow,
             'last_connected_at' => $lastSession?->acctstarttime?->toIso8601String(),
+        ];
+    }
+
+    private function getAgentSubscribersCount(string $username): array
+    {
+        $agent = $this->resolveAgent($username);
+        if (! $agent) {
+            return ['error' => 'تعذر التعرف على حساب الوكيل.'];
+        }
+
+        return ['subscribers_count' => $agent->clients()->count()];
+    }
+
+    /** عناوين IP الحالية من جلسات radacct المفتوحة فقط (لا يوجد IP ثابت مخزَّن بجدول clients) — مقيَّد بعملاء هذا الوكيل حصراً. */
+    private function listAgentSubscribersIps(string $username): array
+    {
+        $agent = $this->resolveAgent($username);
+        if (! $agent) {
+            return ['error' => 'تعذر التعرف على حساب الوكيل.'];
+        }
+
+        $clientUsernames = $agent->clients()->pluck('username');
+
+        if ($clientUsernames->isEmpty()) {
+            return ['subscribers' => [], 'message' => 'لا يوجد مشتركون بحسابك بعد.'];
+        }
+
+        $sessions = RadAcct::whereIn('username', $clientUsernames)
+            ->whereNull('acctstoptime')
+            ->orderByDesc('acctstarttime')
+            ->limit(self::MAX_IP_LIST_RESULTS)
+            ->get(['username', 'framedipaddress']);
+
+        if ($sessions->isEmpty()) {
+            return ['subscribers' => [], 'message' => 'لا يوجد مشتركون متصلون الآن.'];
+        }
+
+        return [
+            'subscribers' => $sessions->map(fn ($session) => [
+                'username' => $session->username,
+                'ip' => $session->framedipaddress,
+            ])->values()->all(),
         ];
     }
 }
