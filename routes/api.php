@@ -12,8 +12,10 @@ use Illuminate\Support\Facades\Route;
 
 Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:6,1');
 
-// شات الموقع التسويقي — عام بلا مصادقة، لزوار الموقع لا لحسابات الوكلاء.
-Route::post('/agent-chat', [AgentChatController::class, 'reply'])->middleware('throttle:10,1');
+// شات الموقع التسويقي — معطَّل مؤقتاً (2026-08-29): ثغرة انتحال هوية
+// حرجة — أي زائر يقدر يتحكم بـ username الجلسة دون تحقق كلمة مرور
+// حقيقي. سيُعاد تفعيله بعد إكمال التحقق بخطوتين (username + password).
+// Route::post('/agent-chat', [AgentChatController::class, 'reply'])->middleware('throttle:10,1');
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
