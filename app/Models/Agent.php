@@ -3,16 +3,24 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 
 /**
  * Maps the existing `agents` table (isp_panel). Agents are the only
  * principals that authenticate against this API (via Sanctum tokens).
+ *
+ * Extends Authenticatable (not plain Model): Sanctum's own token
+ * resolution never actually needed this (it reads tokenable_type/id
+ * directly), so it went unnoticed until throttle:X,Y on an
+ * authenticated route called $request->user()->getAuthIdentifier() to
+ * build a per-user rate-limit key and hit a missing-method crash —
+ * every other Authenticatable-contract method (getAuthPassword etc.)
+ * was equally missing. Authenticatable supplies all of them for free.
  */
-class Agent extends Model
+class Agent extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable;
 
