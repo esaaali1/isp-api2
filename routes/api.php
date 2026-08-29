@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Admin\AgentController as AdminAgentController;
+use App\Http\Controllers\Api\AgentAppChatController;
 use App\Http\Controllers\Api\AgentChatController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ClientController;
@@ -20,6 +21,9 @@ Route::post('/agent-chat', [AgentChatController::class, 'reply'])->middleware('t
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/me', [AuthController::class, 'me']);
+
+    // شات تطبيق الوكلاء — الهوية من التوكن مباشرة، لا من محتوى الطلب.
+    Route::post('/chat', [AgentAppChatController::class, 'reply'])->middleware('throttle:15,1');
 
     Route::get('/dashboard', [DashboardController::class, 'index']);
     Route::get('/router-stats', [RouterStatsController::class, 'index']);

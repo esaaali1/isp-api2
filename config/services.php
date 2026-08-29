@@ -41,7 +41,14 @@ return [
 
     'groq' => [
         'key' => env('GROQ_API_KEY'),
-        'model' => env('GROQ_MODEL', 'llama-3.3-70b-versatile'),
+        'model' => env('GROQ_MODEL', 'openai/gpt-oss-20b'),
+    ],
+
+    // مفتاح منفصل لشات تطبيق الوكلاء (بعد تسجيل الدخول) عن شات الموقع
+    // التسويقي العام أعلاه — حسابا Groq مختلفان عمداً.
+    'groq_agent_app' => [
+        'key' => env('GROQ_API_KEY_AGENT_APP'),
+        'model' => env('GROQ_MODEL_AGENT_APP', 'openai/gpt-oss-20b'),
     ],
 
 ];
